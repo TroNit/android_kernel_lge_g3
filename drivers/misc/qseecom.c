@@ -2421,6 +2421,15 @@ int qseecom_send_command(struct qseecom_handle *handle, void *send_buf,
 			return -EINVAL;
 		}
 		perf_enabled = true;
+
+	* to tz, qseecom will release mutex lock and return error.
+	*/
+	if (!qseecom.qsee.clk_access_cnt && !data->perf_enabled) {
+		pr_err("ce clock is not enabled!\n");
+		atomic_dec(&data->ioctl_count);
+		mutex_unlock(&app_access_lock);
+		return -EINVAL;
+
 	}
 
 	ret = __qseecom_send_cmd(data, &req);
@@ -3622,6 +3631,15 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 				break;
 			}
 			perf_enabled = true;
+
+		* to tz, qseecom will release mutex lock and return error.
+		*/
+		if (!qseecom.qsee.clk_access_cnt && !data->perf_enabled) {
+			pr_err("ce clock is not enabled!\n");
+			ret = -EINVAL;
+			mutex_unlock(&app_access_lock);
+			break;
+
 		}
 		atomic_inc(&data->ioctl_count);
 		ret = qseecom_send_cmd(data, argp);
@@ -3682,6 +3700,15 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 				break;
 			}
 			perf_enabled = true;
+
+		* to tz, qseecom will release mutex lock and return error.
+		*/
+		if (!qseecom.qsee.clk_access_cnt && !data->perf_enabled) {
+			pr_err("ce clock is not enabled!\n");
+			ret = -EINVAL;
+			mutex_unlock(&app_access_lock);
+			break;
+
 		}
 		atomic_inc(&data->ioctl_count);
 		ret = qseecom_send_modfd_cmd(data, argp);
@@ -3857,6 +3884,15 @@ static long qseecom_ioctl(struct file *file, unsigned cmd,
 	}
 
 	case QSEECOM_IOCTL_SET_BUS_SCALING_REQ: {
+		/*
+		* If crypto clock need to be handled by HLOS but qseecom
+		* bus scaling flag is not enabled, then return error.
+		*/
+		if (!qseecom.support_bus_scaling) {
+			pr_err("Bus scaling feature is NOT enabled\n");
+			ret = -EINVAL;
+			break;
+		}
 		if ((data->client.app_id == 0) ||
 			(data->type != QSEECOM_CLIENT_APP)) {
 			pr_err("set bus scale: invalid handle (%d) appid(%d)\n",
