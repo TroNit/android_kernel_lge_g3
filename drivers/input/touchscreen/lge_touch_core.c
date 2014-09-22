@@ -874,6 +874,24 @@ static int report_event(const struct lge_touch_data *ts)
 						ts->ts_prev_data.id_mask, ts->ts_prev_data.report_id_mask, ts->ts_prev_data.total_num);
    */
 
+	/* Ghost Detect Solution */
+	if (ts->pdata->role->ghost_detection_enable){
+		if((ret = ghost_detect_solution(ts)) < 0)
+			return ret;
+	}
+
+	/* Accuracy Solution */
+	if (unlikely(ts->pdata->role->accuracy_filter_enable)){
+		if (accuracy_filter_func(ts) < 0)
+			return -EAGAIN;;
+	}
+
+	/* Jitter Solution */
+	if (unlikely(ts->pdata->role->jitter_filter_enable)){
+		if (jitter_filter_func(ts) < 0)
+			return -EAGAIN;;
+	}
+
 	return 0;
 }
 
@@ -2017,6 +2035,20 @@ static ssize_t store_upgrade(struct i2c_client *client,
 
 /* show_upgrade to upgrade via adb command 'cat' in case permission problem happend */
 static ssize_t show_upgrade(struct i2c_client *client, char *buf)
+
+static ssize_t show_jitter_solution(struct lge_touch_data *ts, char *buf)
+{
+	int ret = 0;
+
+	ret = sprintf(buf, "%d %d\n",
+				ts->pdata->role->jitter_filter_enable,
+				ts->jitter_filter.adjust_margin);
+
+	return ret;
+}
+
+static ssize_t store_jitter_solution(struct lge_touch_data *ts, const char *buf, size_t count)
+
 {
 	struct lge_touch_data *ts = i2c_get_clientdata(client);
 	int ret = 0;
@@ -2035,6 +2067,27 @@ static ssize_t show_upgrade(struct i2c_client *client, char *buf)
 
 	len = strlen(ts->pdata->inbuilt_fw_name_s3528_a1);
 	strncpy(ts->fw_info.fw_path_s3528_a1, ts->pdata->inbuilt_fw_name_s3528_a1, len);
+
+static ssize_t show_accuracy_solution(struct lge_touch_data *ts, char *buf)
+{
+	int ret = 0;
+
+	ret = sprintf(buf, "%d %d %d %d %d %d %d %d\n",
+				ts->pdata->role->accuracy_filter_enable,
+				ts->accuracy_filter.ignore_pressure_gap,
+				ts->accuracy_filter.delta_max,
+				ts->accuracy_filter.touch_max_count,
+				ts->accuracy_filter.max_pressure,
+				ts->accuracy_filter.direction_count,
+				ts->accuracy_filter.time_to_max_pressure,
+				ts->accuracy_filter.pen_pressure);
+
+	return ret;
+}
+
+static ssize_t store_accuracy_solution(struct lge_touch_data *ts, const char *buf, size_t count)
+{
+	int ret = 0;
 
 	len = strlen(ts->pdata->inbuilt_fw_name_s3528_a1_suntel);
 	strncpy(ts->fw_info.fw_path_s3528_a1_suntel, ts->pdata->inbuilt_fw_name_s3528_a1_suntel, len);
@@ -2395,6 +2448,27 @@ static LGE_TOUCH_ATTR(lpwg_data,
 		S_IRUGO | S_IWUSR, show_lpwg_data, store_lpwg_data);
 static LGE_TOUCH_ATTR(lpwg_notify, S_IRUGO | S_IWUSR, NULL, store_lpwg_notify);
 static LGE_TOUCH_ATTR(keyguard, S_IRUGO | S_IWUSR, NULL, store_keyguard_info);
+static LGE_TOUCH_ATTR(virtualkeys, S_IRUGO | S_IWUSR, show_virtual_key, NULL);
+static LGE_TOUCH_ATTR(jitter, S_IRUGO | S_IWUSR, show_jitter_solution, store_jitter_solution);
+static LGE_TOUCH_ATTR(accuracy, S_IRUGO | S_IWUSR, show_accuracy_solution, store_accuracy_solution);
+#ifdef CUST_G2_TOUCH
+static LGE_TOUCH_ATTR(incoming_call, S_IRUGO | S_IWUSR, NULL, store_incoming_call);
+static LGE_TOUCH_ATTR(f54, S_IRUGO | S_IWUSR, show_f54, store_f54);
+static LGE_TOUCH_ATTR(ghost_detection_enable, S_IRUGO | S_IWUSR, NULL, store_ghost_detection_enable);
+static LGE_TOUCH_ATTR(mfts, S_IRUGO | S_IWUSR, show_mfts, NULL);
+static LGE_TOUCH_ATTR(mfts_fw, S_IRUGO | S_IWUSR, show_mfts_fw, NULL);
+static LGE_TOUCH_ATTR(mfts_fw_ver, S_IRUGO | S_IWUSR, show_mfts_fw_ver, NULL);
+static LGE_TOUCH_ATTR(ts_noise, S_IRUGO | S_IWUSR, show_ts_noise, NULL);
+static LGE_TOUCH_ATTR(window_crack, S_IRUGO | S_IWUSR, show_f54_window_crack, NULL);
+#ifdef CONFIG_LGE_Z_TOUCHSCREEN
+static LGE_TOUCH_ATTR(quick_cover_status, S_IRUGO | S_IWUSR, NULL, store_quick_cover_status);
+#endif
+#endif
+#if defined(Z_GLOVE_TOUCH_SUPPORT)
+static LGE_TOUCH_ATTR(glove_finger_enable, S_IRUGO | S_IWUSR, show_glove_finger_enable, store_glove_finger_enable);
+#endif
+#if defined(A1_only) || defined(CONFIG_LGE_Z_TOUCHSCREEN)
+
 static LGE_TOUCH_ATTR(ime_status, S_IRUGO | S_IWUSR, show_ime_drumming_status, store_ime_drumming_status);
 static LGE_TOUCH_ATTR(quick_cover_status, S_IRUGO | S_IWUSR, NULL, store_quick_cover_status);
 static LGE_TOUCH_ATTR(incoming_call, S_IRUGO | S_IWUSR, NULL, store_incoming_call);
@@ -3144,6 +3218,18 @@ static int touch_probe(struct i2c_client *client,
 	wake_lock_init(&ts->lpwg_wake_lock, WAKE_LOCK_SUSPEND, "touch_lpwg");
 
 	input_set_drvdata(ts->input_dev, ts);
+
+	/* jitter solution */
+	ts->jitter_filter.adjust_margin = 1000;
+
+	/* accuracy solution */
+	ts->accuracy_filter.ignore_pressure_gap = 5;
+	ts->accuracy_filter.delta_max = 30;
+	ts->accuracy_filter.max_pressure = 255;
+	ts->accuracy_filter.time_to_max_pressure = one_sec / 20;
+	ts->accuracy_filter.direction_count = one_sec / 10;
+	ts->accuracy_filter.touch_max_count = one_sec / 2;
+	ts->accuracy_filter.pen_pressure = 35;
 
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
