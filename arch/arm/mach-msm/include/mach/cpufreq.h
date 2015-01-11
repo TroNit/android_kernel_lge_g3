@@ -13,8 +13,6 @@
 #ifndef __MACH_CPUFREQ_H
 #define __MACH_CPUFREQ_H
 
-#define MSM_CPUFREQ_NO_LIMIT 0xFFFFFFFF
-
 #if defined(CONFIG_DEVFREQ_GOV_MSM_CPUFREQ)
 extern int devfreq_msm_cpufreq_update_bw(void);
 extern int register_devfreq_msm_cpufreq(void);
@@ -63,4 +61,5 @@ static inline int msm_cpufreq_set_freq_limits(
 	return -ENOSYS;
 }
 #endif
+
 #endif

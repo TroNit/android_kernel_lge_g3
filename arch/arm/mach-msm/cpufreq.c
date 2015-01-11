@@ -41,7 +41,6 @@
 #include <linux/seq_file.h>
 #include <asm/div64.h>
 #endif
-#include <mach/cpufreq.h>
 
 #ifdef CONFIG_CPU_VOLTAGE_TABLE
 static struct cpufreq_frequency_table *dts_freq_table;
@@ -68,15 +67,6 @@ struct cpufreq_work_struct {
 	int status;
 };
 
-struct cpu_freq {
-	uint32_t max;
-	uint32_t min;
-	uint32_t allowed_max;
-	uint32_t allowed_min;
-	uint32_t limits_init;
-};
-
-static DEFINE_PER_CPU(struct cpu_freq, cpu_freq_info);
 static DEFINE_PER_CPU(struct cpufreq_work_struct, cpufreq_work);
 static struct workqueue_struct *msm_cpufreq_wq;
 
@@ -139,20 +129,6 @@ static int set_cpu_freq(struct cpufreq_policy *policy, unsigned int new_freq,
 	int saved_sched_rt_prio = -EINVAL;
 	struct cpufreq_freqs freqs;
 	struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
-	struct cpu_freq *limit = &per_cpu(cpu_freq_info, policy->cpu);
-
-	if (limit->limits_init) {
-		if (new_freq > limit->allowed_max) {
-			new_freq = limit->allowed_max;
-			pr_debug("max: limiting freq to %d\n", new_freq);
-		}
-
-		if (new_freq < limit->allowed_min) {
-			new_freq = limit->allowed_min;
-			pr_debug("min: limiting freq to %d\n", new_freq);
-		}
-	}
-
 	struct cpu_freq *limit = &per_cpu(cpu_freq_info, policy->cpu);
 
 	if (limit->limits_init) {
@@ -296,8 +272,6 @@ static inline int msm_cpufreq_limits_init(void)
 	for_each_possible_cpu(cpu) {
 		limit = &per_cpu(cpu_freq_info, cpu);
 		table = cpufreq_frequency_get_table(cpu);
-	table = cpufreq_frequency_get_table(cpu);
-
 		if (table == NULL) {
 			pr_err("%s: error reading cpufreq table for cpu %d\n",
 					__func__, cpu);
