@@ -164,13 +164,8 @@ export srctree objtree VPATH
 # line overrides the setting of ARCH below.  If a native build is happening,
 # then ARCH is assigned, getting whatever value it gets normally, and 
 # SUBARCH is subsequently ignored.
-ARCH := arm
 
-SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
-				  -e s/arm.*/arm/ -e s/sa110/arm/ \
-				  -e s/s390x/s390/ -e s/parisc64/parisc/ \
-				  -e s/ppc.*/powerpc/ -e s/mips.*/mips/ \
-				  -e s/sh[234].*/sh/ )
+SUBARCH := arm
 
 # Cross compiling and selecting different set of gcc/bin-utils
 # ---------------------------------------------------------------------------
@@ -244,10 +239,16 @@ CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
 
+# Define optimization flags for later use
+GRAPHITE = -fgraphite -fgraphite-identity -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -floop-flatten -floop-nest-optimize
+LOOP     = -fmodulo-sched -fmodulo-sched-allow-regmoves -fforce-addr -fsched-spec-load -fgcse-las -fsingle-precision-constant
+CPU      = -mfpu=neon-vfpv4 -mtune=cortex-a15 -mcpu=cortex-a15 -marm -mvectorize-with-neon-quad
+OPTI     = -O3 -ffast-math -munaligned-access -pipe -lto 
+
 HOSTCC       = gcc
 HOSTCXX      = g++
-HOSTCFLAGS   = -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -fgcse-las
-HOSTCXXFLAGS = -O3 -fgcse-las
+HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -Ofast -fomit-frame-pointer -fgcse-las $(GRAPHITE) 
+HOSTCXXFLAGS = -Ofast -fgcse-las $(GRAPHITE)
 
 # Decide whether to build built-in, modular, or both.
 # Normally, just do built-in.
@@ -331,7 +332,7 @@ include $(srctree)/scripts/Kbuild.include
 
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-REAL_CC		= $(CROSS_COMPILE)gcc
+CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -346,33 +347,22 @@ KALLSYMS	= scripts/kallsyms
 PERL		= perl
 CHECK		= sparse
 
-# Use the wrapper for the compiler.  This wrapper scans for new
-# warnings and causes the build to stop upon encountering them.
-CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
-
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
-MODFLAGS = -DMODULE \
-           -mfpu=neon-vfpv4 \
-           -mtune=cortex-a15 \
-           -fgcse-las \
-           -fpredictive-commoning \
-           -O3
-
+KERNELFLAGS    = $(GRAPHITE) \
+		 $(LOOP) \
+		 $(CPU) \
+		 $(OPTI)
+MODFLAGS       = $(KERNELFLAGS) -DMODULE
+BUILDFLAGS     = $(GRAPHITE) \
+		 $(LOOP) \
+		 $(CPU) -pipe -lto \
 CFLAGS_MODULE  = $(MODFLAGS)
 AFLAGS_MODULE  = $(MODFLAGS)
 LDFLAGS_MODULE = -T $(srctree)/scripts/module-common.lds
-CFLAGS_KERNEL  = -mfpu=neon-vfpv4 \
-                 -mtune=cortex-a15 \
-                 -fgcse-las \
-                 -fpredictive-commoning \
-                 -O2
-
-ifeq ($(ENABLE_GRAPHITE),true)
-CFLAGS_KERNEL += -fgraphite -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block
-endif
-AFLAGS_KERNEL	=
-CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
+CFLAGS_KERNEL  = $(KERNELFLAGS)
+AFLAGS_KERNEL  = $(KERNELFLAGS)
+CFLAGS_GCOV    = -fprofile-arcs -ftest-coverage
 
 
 # Use LINUXINCLUDE when you must reference the include/ directory.
@@ -382,24 +372,24 @@ LINUXINCLUDE    := -I$(srctree)/arch/$(hdr-arch)/include \
                    $(if $(KBUILD_SRC), -I$(srctree)/include) \
                    -include $(srctree)/include/linux/kconfig.h
 
-KBUILD_CPPFLAGS := -D__KERNEL__
+KBUILD_CPPFLAGS := -D__KERNEL__ $(KERNELFLAGS)
 
-CFLAGS_A15 = -mtune=cortex-a15 -mfpu=neon -funsafe-math-optimizations
-CFLAGS_MODULO = -fmodulo-sched -fmodulo-sched-allow-regmoves
-KERNEL_MODS = $(CFLAGS_A15) $(CFLAGS_MODULO)
+KBUILD_CFLAGS   := -Wall -DNDEBUG -Wstrict-prototypes -Wno-trigraphs \
+		   -fno-strict-aliasing -fno-common \
+		   -Wno-format-security \
+		   -fno-delete-null-pointer-checks \
+		   -funswitch-loops -fpredictive-commoning -fgcse-after-reload \
+		   -Wno-sizeof-pointer-memaccess \
+                   -fmodulo-sched -fmodulo-sched-allow-regmoves \
+		    $(CPU) $(GRAPHITE) \
+		   --param l1-cache-size=32 --param l1-cache-line-size=32 --param l2-cache-size=2048
 
-KBUILD_CFLAGS := -O3 -funswitch-loops \
-                         -Wundef -Wstrict-prototypes -Wno-trigraphs \
-                         -fno-strict-aliasing -fno-common \
-                         -Werror-implicit-function-declaration \
-                         -Wno-format-security \
-                         -fno-delete-null-pointer-checks
 
-KBUILD_AFLAGS_KERNEL :=
-KBUILD_CFLAGS_KERNEL :=
+KBUILD_AFLAGS_KERNEL :=  $(BUILDFLAGS)
+KBUILD_CFLAGS_KERNEL :=  $(BUILDFLAGS)
 KBUILD_AFLAGS   := -D__ASSEMBLY__
-KBUILD_AFLAGS_MODULE  := -DMODULE
-KBUILD_CFLAGS_MODULE  := -DMODULE
+KBUILD_AFLAGS_MODULE  := $(BUILDFLAGS) -DMODULE
+KBUILD_CFLAGS_MODULE  := $(BUILDFLAGS) -DMODULE
 KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
 
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
